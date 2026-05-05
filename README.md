@@ -7,7 +7,7 @@ shows each repo's branch and working-tree state at a glance.
 - Idle CPU 0%, RSS in single-digit MB
 - Manual refresh only (⌘R local, ⇧⌘R with `git fetch`)
 
-> _Screenshot: add `docs/screenshot.png` and reference it here._
+![GitStatusBar dropdown showing 28 repos](docs/screenshot.png)
 
 ## Requirements
 
