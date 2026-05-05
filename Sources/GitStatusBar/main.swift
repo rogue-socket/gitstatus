@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
@@ -237,7 +238,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addItem.target = self
         m.addItem(addItem)
 
+        m.addItem(.separator())
+
+        let launchItem = NSMenuItem(
+            title: "Launch at Login",
+            action: #selector(toggleLaunchAtLogin(_:)),
+            keyEquivalent: ""
+        )
+        launchItem.target = self
+        launchItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+        m.addItem(launchItem)
+
         return m
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't update Launch at Login"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     // MARK: - Actions

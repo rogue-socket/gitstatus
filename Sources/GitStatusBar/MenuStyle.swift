@@ -44,6 +44,19 @@ enum MenuStyle {
         s.append(run(pad(truncate(r.branch, max: 18), to: 18) + "  ", font: mono, color: cBranch))
 
         s.append(verdictAttr(r))
+
+        if !r.lastDate.isEmpty || !r.lastMsg.isEmpty {
+            s.append(run("   ", font: mono, color: cDim))
+            if !r.lastDate.isEmpty {
+                s.append(run("⏱ \(r.lastDate)", font: small, color: cDim))
+            }
+            if !r.lastMsg.isEmpty {
+                if !r.lastDate.isEmpty {
+                    s.append(run("  ·  ", font: small, color: cDim))
+                }
+                s.append(run("“\(truncate(r.lastMsg, max: 50))”", font: small, color: cDim))
+            }
+        }
         return s
     }
 
