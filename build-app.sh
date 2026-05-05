@@ -24,6 +24,12 @@ mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${BIN_NAME}"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 
+if [[ ! -f "Resources/AppIcon.icns" ]]; then
+  echo "→ generating AppIcon.icns"
+  swift Resources/make-icon.swift >/dev/null
+fi
+cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
+
 echo "→ ad-hoc codesign"
 codesign --force --sign - "${APP_DIR}" >/dev/null 2>&1 || true
 

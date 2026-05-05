@@ -20,6 +20,8 @@ DerivedData/
 
 # macOS
 .DS_Store
+.AppleDouble
+*.dSYM
 
 # Logs
 *.log
