@@ -9,6 +9,15 @@ shows each repo's branch and working-tree state at a glance.
 
 ![GitStatusBar dropdown showing 28 repos](docs/screenshot.png)
 
+## Download
+
+Grab the latest pre-built `.app` from the
+[Releases page](https://github.com/rogue-socket/gitstatus/releases/latest).
+Unzip, move to `/Applications`, then right-click → **Open** on first launch
+(see [Gatekeeper](#first-launch--gatekeeper) below).
+
+Or build from source — see [Build from source](#build-from-source).
+
 ## Requirements
 
 - macOS 13 (Ventura) or later
