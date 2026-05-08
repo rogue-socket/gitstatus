@@ -29,3 +29,14 @@ struct RepoStatus {
         return parts.isEmpty ? "✓ clean" : parts.joined(separator: "  ")
     }
 }
+
+struct BranchStatus {
+    let name: String
+    let isCurrent: Bool
+    let upstream: String?
+    let ahead: Int
+    let behind: Int
+    let upstreamGone: Bool
+    let lastDate: String
+    let lastMsg: String
+}
