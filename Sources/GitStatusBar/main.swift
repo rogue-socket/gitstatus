@@ -7,6 +7,10 @@ struct EditorApp {
     let url: URL
 }
 
+// representedObject payloads for action handlers.
+struct EditorPayload { let repo: URL; let app: URL }
+struct CheckoutPayload { let repo: RepoStatus; let branch: String }
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem!
@@ -427,6 +431,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         roots.remove(at: idx)
         scanRoots = roots
         Task { await refresh(fetch: false) }
+    }
+
+    // MARK: - Repo submenu actions
+
+    @objc func actOpenInFinder(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func actOpenInTerminal(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
+            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+        guard let term = term else {
+            warn("No terminal app found", "Install Terminal.app or iTerm2.")
+            return
+        }
+        NSWorkspace.shared.open([url],
+                                withApplicationAt: term,
+                                configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    @objc func actOpenInEditor(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? EditorPayload else { return }
+        NSWorkspace.shared.open([p.repo],
+                                withApplicationAt: p.app,
+                                configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    @objc func actCopyString(_ sender: NSMenuItem) {
+        guard let s = sender.representedObject as? String else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+
+    @objc func actOpenURL(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc func actCheckout(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? CheckoutPayload else { return }
+        if p.repo.isDirty {
+            warn("Working tree has uncommitted changes",
+                 "Checking out \(p.branch) could clobber local changes. Commit or stash first.")
+            return
+        }
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                GitScanner.checkout(branch: p.branch, in: p.repo.path)
+            }.value
+            if !result.ok {
+                self?.warn("Checkout failed",
+                           result.message.isEmpty ? "git exited non-zero" : result.message)
+            }
+            await self?.refresh(fetch: false)
+        }
+    }
+
+    private func warn(_ title: String, _ body: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }
 
