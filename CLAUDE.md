@@ -98,3 +98,20 @@ opens an `NSOpenPanel`).
 - The plan file in `~/.claude/plans/i-want-to-create-reactive-acorn.md`
   describes the original design; update it if the architecture changes
   meaningfully.
+
+## Navigating these docs
+
+- What's next?             → `backlog.md` (filter `[active]`, `[next]`)
+- Why was X chosen?        → `decisions.md`
+- What does TERM mean?     → `glossary.md`
+- What happened recently?  → most recent `~/.claude/sessions/gitstatus/*.md` + `git log`
+- In-flight features       → `prds/`
+- Quality reviews          → `audits/`
+- Test/eval results        → `test_findings/`
+- Keepworthy misc notes    → `misc/`
+
+## Skill cadence
+
+- `/get-started` — start of session or after `/clear`
+- `/update-docs [targets]` — on major discovery, decision, or test run. Multiple targets allowed (e.g. `/update-docs decisions backlog`). No args = save progress to today's session doc.
+- `/wrap-up` — end of day or before clearing context
