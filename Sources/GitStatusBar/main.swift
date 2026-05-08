@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 import ServiceManagement
 
+struct EditorApp {
+    let name: String
+    let url: URL
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem!
@@ -13,6 +18,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Persisted settings
 
     private let rootsKey = "scanRoots"
+
+    // Detected once at launch — checked again is overkill.
+    lazy var installedEditors: [EditorApp] = AppDelegate.detectEditors()
+
+    private static func detectEditors() -> [EditorApp] {
+        // Each candidate: (display name, bundle IDs to try, fallback paths).
+        let candidates: [(String, [String], [String])] = [
+            ("Sublime Text",
+             ["com.sublimetext.4", "com.sublimetext.3"],
+             ["/Applications/Sublime Text.app"]),
+            ("Zed",
+             ["dev.zed.Zed"],
+             ["/Applications/Zed.app"]),
+        ]
+        let ws = NSWorkspace.shared
+        let fm = FileManager.default
+        var found: [EditorApp] = []
+        for (name, bids, paths) in candidates {
+            var url: URL?
+            for bid in bids {
+                if let u = ws.urlForApplication(withBundleIdentifier: bid) { url = u; break }
+            }
+            if url == nil {
+                for p in paths where fm.fileExists(atPath: p) {
+                    url = URL(fileURLWithPath: p); break
+                }
+            }
+            if let u = url { found.append(EditorApp(name: name, url: u)) }
+        }
+        return found
+    }
+
+    // Convert a git remote URL (ssh or https) to a web URL we can open in a
+    // browser. Returns nil for hosts we don't recognise rather than guessing,
+    // since branch deep-links differ per host.
+    static func webURL(forRemote remote: String) -> URL? {
+        let allowedHosts: Set<String> = [
+            "github.com", "gitlab.com", "bitbucket.org",
+            "codeberg.org", "git.sr.ht",
+        ]
+        var s = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasSuffix(".git") { s = String(s.dropLast(4)) }
+
+        // SSH style: user@host:path
+        if let regex = try? NSRegularExpression(pattern: #"^[^@\s]+@([^:\s]+):(.+)$"#),
+           let m = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
+           let hr = Range(m.range(at: 1), in: s),
+           let pr = Range(m.range(at: 2), in: s) {
+            let host = String(s[hr])
+            let path = String(s[pr])
+            guard allowedHosts.contains(host) else { return nil }
+            return URL(string: "https://\(host)/\(path)")
+        }
+
+        // ssh://, https://, http://
+        if let url = URL(string: s), let host = url.host, allowedHosts.contains(host) {
+            return URL(string: "https://\(host)\(url.path)")
+        }
+        return nil
+    }
+
+    // Per-host deep link to a branch's tree view. Falls back to the repo root
+    // for hosts where we don't know the path scheme.
+    static func branchWebURL(base: URL, branch: String) -> URL {
+        guard let host = base.host else { return base }
+        switch host {
+        case "github.com", "codeberg.org":
+            return base.appendingPathComponent("tree").appendingPathComponent(branch)
+        case "gitlab.com":
+            return base.appendingPathComponent("-")
+                .appendingPathComponent("tree")
+                .appendingPathComponent(branch)
+        case "bitbucket.org":
+            return base.appendingPathComponent("src").appendingPathComponent(branch)
+        default:
+            return base
+        }
+    }
 
     private var scanRoots: [URL] {
         get {
