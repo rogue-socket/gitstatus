@@ -137,74 +137,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             rootSummary = "📂  \(roots.count) folders"
         }
-        let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        header.attributedTitle = MenuStyle.headerLine(rootSummary)
-        header.isEnabled = false
-        menu.addItem(header)
+        menu.addItem(makeCompactItem(MenuStyle.headerLine(rootSummary), enabled: false))
 
         if let placeholder = placeholder, lastScan.isEmpty {
-            let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            item.attributedTitle = MenuStyle.plainDim(placeholder)
-            item.isEnabled = false
-            menu.addItem(item)
+            menu.addItem(makeCompactItem(MenuStyle.plainDim(placeholder), enabled: false))
         } else {
             let total = lastScan.count
             let clean = lastScan.filter { $0.isClean }.count
             let dirty = lastScan.filter { $0.isDirty }.count
             let ahead = lastScan.filter { $0.ahead > 0 }.count
             let behind = lastScan.filter { $0.behind > 0 }.count
-            let summary = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            summary.attributedTitle = MenuStyle.summaryLine(
-                total: total, clean: clean, dirty: dirty, ahead: ahead, behind: behind
-            )
-            summary.isEnabled = false
-            menu.addItem(summary)
+            menu.addItem(makeCompactItem(
+                MenuStyle.summaryLine(total: total, clean: clean, dirty: dirty, ahead: ahead, behind: behind),
+                enabled: false
+            ))
         }
 
         menu.addItem(.separator())
 
-        // Compute name column width once, capped to keep menu narrow.
-        let maxName = min(40, max(12, lastScan.map { $0.name.count }.max() ?? 12))
+        // Compute name column width once, capped tight. Long multi-segment
+        // names get compacted to `first/../last` by MenuStyle.repoLine to fit.
+        let maxName = min(28, max(12, lastScan.map { $0.name.count }.max() ?? 12))
         for repo in lastScan {
             let item = NSMenuItem(title: repo.name, action: #selector(openRepo(_:)), keyEquivalent: "")
             item.attributedTitle = MenuStyle.repoLine(repo, nameWidth: maxName)
             item.target = self
             item.representedObject = repo.path
-            if !repo.lastMsg.isEmpty {
-                item.toolTip = "last: \(repo.lastMsg) (\(repo.lastDate))"
-            }
             menu.addItem(item)
         }
 
         menu.addItem(.separator())
 
-        // Settings submenu
-        let settingsItem = NSMenuItem(title: "⚙︎  Settings", action: nil, keyEquivalent: "")
+        // Settings — keep submenu attached; custom view suppresses the arrow.
+        let settingsItem = makeCompactItem(controlAttr("⚙︎  Settings", shortcut: ""))
         settingsItem.submenu = buildSettingsMenu()
         menu.addItem(settingsItem)
 
-        let refreshLocal = NSMenuItem(
-            title: scanning ? "↻  Refreshing…" : "↻  Refresh (local)",
+        let refreshLocal = makeCompactItem(
+            controlAttr(scanning ? "↻  Refreshing…" : "↻  Refresh", shortcut: scanning ? "" : "⌘R"),
             action: #selector(refreshLocalAction(_:)),
-            keyEquivalent: "r"
+            keyEquiv: "r"
         )
-        refreshLocal.target = self
         refreshLocal.isEnabled = !scanning
-        refreshLocal.toolTip = "Rescan working trees only — fast, no network."
         menu.addItem(refreshLocal)
 
-        let refreshRemote = NSMenuItem(
-            title: scanning ? "⇣  Fetching…" : "⇣  Refresh with remote",
+        let refreshRemote = makeCompactItem(
+            controlAttr(scanning ? "⇣  Fetching…" : "⇣  Refresh + fetch", shortcut: scanning ? "" : "⇧⌘R"),
             action: #selector(refreshRemoteAction(_:)),
-            keyEquivalent: "R"
+            keyEquiv: "R",
+            keyMask: [.command, .shift]
         )
-        refreshRemote.keyEquivalentModifierMask = [.command, .shift]
-        refreshRemote.target = self
         refreshRemote.isEnabled = !scanning
-        refreshRemote.toolTip = "Run `git fetch` per repo before computing ahead/behind. Slower."
         menu.addItem(refreshRemote)
 
-        menu.addItem(NSMenuItem(title: "⏻  Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(makeCompactItem(
+            controlAttr("⏻  Quit", shortcut: "⌘Q"),
+            action: #selector(NSApplication.terminate(_:)),
+            target: NSApp,
+            keyEquiv: "q"
+        ))
+    }
+
+    // MARK: - Compact item helpers
+
+    private func makeCompactItem(
+        _ attr: NSAttributedString,
+        action: Selector? = nil,
+        target: AnyObject? = nil,
+        keyEquiv: String = "",
+        keyMask: NSEvent.ModifierFlags = [],
+        enabled: Bool = true
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: action, keyEquivalent: keyEquiv)
+        item.keyEquivalentModifierMask = keyMask
+        item.target = target ?? self
+        item.view = CompactRowView(attr: attr)
+        item.isEnabled = enabled
+        return item
+    }
+
+    // Title + dim shortcut hint, used for non-repo control rows.
+    private func controlAttr(_ title: String, shortcut: String) -> NSAttributedString {
+        let s = NSMutableAttributedString()
+        s.append(NSAttributedString(string: title, attributes: [
+            .font: NSFont.menuFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor,
+        ]))
+        if !shortcut.isEmpty {
+            s.append(NSAttributedString(string: "  " + shortcut, attributes: [
+                .font: NSFont.menuFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
+        return s
     }
 
     private func buildSettingsMenu() -> NSMenu {
@@ -320,6 +345,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scanRoots = roots
         Task { await refresh(fetch: false) }
     }
+}
+
+// Custom row view used in place of NSMenuItem.attributedTitle. Suppresses
+// AppKit's standard menu chrome (submenu arrow, reserved shortcut column,
+// trailing padding) so the menu's natural width tracks our content exactly.
+final class CompactRowView: NSView {
+    init(attr: NSAttributedString) {
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithAttributedString: attr)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.drawsBackground = false
+        label.isBordered = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byClipping
+        label.cell?.usesSingleLineMode = true
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        let size = attr.size()
+        frame.size = NSSize(
+            width: ceil(size.width) + 22,
+            height: max(24, ceil(size.height) + 8)
+        )
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 let app = NSApplication.shared
