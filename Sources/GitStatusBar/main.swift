@@ -501,6 +501,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
+// Custom row view used in place of NSMenuItem.attributedTitle. Suppresses
+// AppKit's standard menu chrome (submenu arrow, reserved shortcut column,
+// trailing padding) so the menu's natural width tracks our content exactly.
+final class CompactRowView: NSView {
+    init(attr: NSAttributedString) {
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithAttributedString: attr)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.drawsBackground = false
+        label.isBordered = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byClipping
+        label.cell?.usesSingleLineMode = true
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        let size = attr.size()
+        frame.size = NSSize(
+            width: ceil(size.width) + 22,
+            height: max(24, ceil(size.height) + 8)
+        )
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 // Per-repo submenu. Builds four blocks: header (name + branch + path), Status
 // (counts + ahead/behind + last commit), Actions (open/copy/etc), Branches
 // (list, each with its own sub-submenu of branch actions).
@@ -571,30 +600,51 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
 
         addItem(.separator())
 
-        // --- Actions
-        addAction("Open in Finder",
-                  #selector(AppDelegate.actOpenInFinder(_:)),
-                  target: owner, repObj: repo.path)
-        addAction("Open in Terminal",
-                  #selector(AppDelegate.actOpenInTerminal(_:)),
-                  target: owner, repObj: repo.path)
+        // --- Actions (two compact text rows: "Open: ..." and "Copy: ...")
+        var openActions: [TextAction] = [
+            TextAction(label: "Finder",
+                       target: owner,
+                       action: #selector(AppDelegate.actOpenInFinder(_:)),
+                       representedObject: repo.path),
+            TextAction(label: "Terminal",
+                       target: owner,
+                       action: #selector(AppDelegate.actOpenInTerminal(_:)),
+                       representedObject: repo.path),
+        ]
         for editor in owner.installedEditors {
-            addAction("Open in \(editor.name)",
-                      #selector(AppDelegate.actOpenInEditor(_:)),
-                      target: owner,
-                      repObj: EditorPayload(repo: repo.path, app: editor.url))
+            openActions.append(TextAction(
+                label: editor.name,
+                target: owner,
+                action: #selector(AppDelegate.actOpenInEditor(_:)),
+                representedObject: EditorPayload(repo: repo.path, app: editor.url)
+            ))
         }
-        addAction("Copy path",
-                  #selector(AppDelegate.actCopyString(_:)),
-                  target: owner, repObj: repo.path.path)
-        addAction("Copy branch name (\(repo.branch))",
-                  #selector(AppDelegate.actCopyString(_:)),
-                  target: owner, repObj: repo.branch)
         if let webURL = remoteWebURL {
-            addAction("Open on \(webURL.host ?? "remote")",
-                      #selector(AppDelegate.actOpenURL(_:)),
-                      target: owner, repObj: webURL)
+            openActions.append(TextAction(
+                label: webURL.host ?? "remote",
+                target: owner,
+                action: #selector(AppDelegate.actOpenURL(_:)),
+                representedObject: webURL
+            ))
         }
+        let copyActions: [TextAction] = [
+            TextAction(label: "path",
+                       target: owner,
+                       action: #selector(AppDelegate.actCopyString(_:)),
+                       representedObject: repo.path.path),
+            TextAction(label: "branch",
+                       target: owner,
+                       action: #selector(AppDelegate.actCopyString(_:)),
+                       representedObject: repo.branch),
+        ]
+
+        let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        openItem.view = TextActionRow(prefix: "Open:", actions: openActions)
+        addItem(openItem)
+
+        let copyItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        copyItem.view = TextActionRow(prefix: "Copy:", actions: copyActions)
+        addItem(copyItem)
 
         addItem(.separator())
 
@@ -666,42 +716,103 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
         addItem(it)
     }
 
-    private func addAction(_ title: String, _ action: Selector,
-                           target: AnyObject, repObj: Any) {
-        let it = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        it.target = target
-        it.representedObject = repObj
-        addItem(it)
-    }
 }
 
-// Custom row view used in place of NSMenuItem.attributedTitle. Suppresses
-// AppKit's standard menu chrome (submenu arrow, reserved shortcut column,
-// trailing padding) so the menu's natural width tracks our content exactly.
-final class CompactRowView: NSView {
-    init(attr: NSAttributedString) {
+// One clickable text segment in TextActionRow. Carries the same
+// (target, action, representedObject) shape as an NSMenuItem so we can route
+// clicks straight to the existing AppDelegate handlers.
+struct TextAction {
+    let label: String
+    let target: AnyObject
+    let action: Selector
+    let representedObject: Any?
+}
+
+// A row like "Open: Finder · Terminal · GitHub" rendered as a menu item view.
+// The dim verb prefix sits at the left; each action label is a borderless
+// NSButton that closes the menu hierarchy and invokes the handler with a
+// synthetic NSMenuItem carrying representedObject — so AppDelegate's existing
+// `act*` handlers don't need to know about this widget.
+final class TextActionRow: NSView {
+    private let actions: [TextAction]
+
+    init(prefix: String, actions: [TextAction]) {
+        self.actions = actions
         super.init(frame: .zero)
-        let label = NSTextField(labelWithAttributedString: attr)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.drawsBackground = false
-        label.isBordered = false
-        label.isEditable = false
-        label.isSelectable = false
-        label.maximumNumberOfLines = 1
-        label.lineBreakMode = .byClipping
-        label.cell?.usesSingleLineMode = true
-        addSubview(label)
+
+        let font = NSFont.menuFont(ofSize: 13)
+        let prefixColor = NSColor.secondaryLabelColor
+        let textColor = NSColor.labelColor
+        let sepColor = NSColor.tertiaryLabelColor
+        let leading: CGFloat = 14
+        let trailing: CGFloat = 14
+        let topPad: CGFloat = 3
+        let bottomPad: CGFloat = 3
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 4
+        stack.alignment = .firstBaseline
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        stack.addArrangedSubview(label(prefix, font: font, color: prefixColor))
+
+        for (i, a) in actions.enumerated() {
+            if i > 0 {
+                stack.addArrangedSubview(label("·", font: font, color: sepColor))
+            }
+            let btn = NSButton()
+            btn.isBordered = false
+            btn.bezelStyle = .inline
+            btn.attributedTitle = NSAttributedString(string: a.label, attributes: [
+                .font: font,
+                .foregroundColor: textColor,
+            ])
+            btn.target = self
+            btn.action = #selector(clicked(_:))
+            btn.tag = i
+            stack.addArrangedSubview(btn)
+        }
+
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leading),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailing),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: topPad),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -bottomPad),
         ])
-        let size = attr.size()
-        frame.size = NSSize(
-            width: ceil(size.width) + 22,
-            height: max(24, ceil(size.height) + 8)
-        )
+
+        let fitting = stack.fittingSize
+        frame.size = NSSize(width: fitting.width + leading + trailing,
+                            height: fitting.height + topPad + bottomPad)
     }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func label(_ s: String, font: NSFont, color: NSColor) -> NSTextField {
+        let t = NSTextField(labelWithString: s)
+        t.font = font
+        t.textColor = color
+        t.drawsBackground = false
+        t.isBordered = false
+        t.isEditable = false
+        t.isSelectable = false
+        return t
+    }
+
+    @objc private func clicked(_ sender: NSButton) {
+        guard sender.tag >= 0, sender.tag < actions.count else { return }
+        let a = actions[sender.tag]
+        // Walk up to the topmost menu and cancel tracking — closes the whole
+        // menu chain, matching the feel of clicking a normal menu item.
+        var m = enclosingMenuItem?.menu
+        while let parent = m?.supermenu { m = parent }
+        m?.cancelTrackingWithoutAnimation()
+        // AppDelegate handlers expect NSMenuItem and read representedObject.
+        let item = NSMenuItem()
+        item.representedObject = a.representedObject
+        _ = a.target.perform(a.action, with: item)
+    }
 }
 
 let app = NSApplication.shared
