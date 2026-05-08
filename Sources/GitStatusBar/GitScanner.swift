@@ -160,6 +160,97 @@ enum GitScanner {
         )
     }
 
+    // MARK: - Per-branch inspection (lazy, called on submenu hover)
+
+    static func branches(in repo: URL) -> [BranchStatus] {
+        // Single git call: list every local branch with HEAD marker, upstream,
+        // ahead/behind track string, relative date and subject. Avoids N
+        // process spawns per repo.
+        let sep = "\u{001F}" // ASCII unit separator, won't appear in branch metadata
+        let format = [
+            "%(HEAD)", "%(refname:short)", "%(upstream:short)",
+            "%(upstream:track)", "%(committerdate:relative)", "%(subject)",
+        ].joined(separator: sep)
+        guard let raw = git(
+            ["for-each-ref", "--format=" + format, "refs/heads"],
+            in: repo
+        ) else { return [] }
+
+        var out: [BranchStatus] = []
+        for rawLine in raw.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = String(rawLine).components(separatedBy: sep)
+            guard parts.count == 6 else { continue }
+            let isCurrent = parts[0].trimmingCharacters(in: .whitespaces) == "*"
+            let name = parts[1]
+            let upstream = parts[2]
+            let track = parts[3]
+            let date = parts[4]
+            let subject = parts[5]
+
+            var ahead = 0, behind = 0
+            if let r = track.range(of: #"ahead (\d+)"#, options: .regularExpression) {
+                ahead = Int(track[r].dropFirst(6)) ?? 0
+            }
+            if let r = track.range(of: #"behind (\d+)"#, options: .regularExpression) {
+                behind = Int(track[r].dropFirst(7)) ?? 0
+            }
+            let gone = track.contains("gone")
+
+            out.append(BranchStatus(
+                name: name,
+                isCurrent: isCurrent,
+                upstream: upstream.isEmpty ? nil : upstream,
+                ahead: ahead, behind: behind,
+                upstreamGone: gone,
+                lastDate: date, lastMsg: subject
+            ))
+        }
+        // Current branch first, then alphabetical.
+        return out.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
+            return lhs.name.lowercased() < rhs.name.lowercased()
+        }
+    }
+
+    // MARK: - Remote URL & checkout (called from submenu actions)
+
+    static func remoteURL(in repo: URL) -> String? {
+        let s = git(["remote", "get-url", "origin"], in: repo)
+        return (s?.isEmpty ?? true) ? nil : s
+    }
+
+    static func checkout(branch: String, in repo: URL) -> (ok: Bool, message: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["git", "checkout", branch]
+        p.currentDirectoryURL = repo
+        let out = Pipe()
+        let err = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        var env = ProcessInfo.processInfo.environment
+        env["GIT_OPTIONAL_LOCKS"] = "0"
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["LC_ALL"] = "C"
+        p.environment = env
+
+        do { try p.run() } catch {
+            return (false, "couldn't run git: \(error.localizedDescription)")
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while p.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if p.isRunning {
+            p.terminate()
+            return (false, "checkout timed out")
+        }
+        let data = err.fileHandleForReading.readDataToEndOfFile()
+        let msg = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (p.terminationStatus == 0, msg)
+    }
+
     // MARK: - Process helpers
 
     private static func git(_ args: [String], in dir: URL, timeout: TimeInterval = 5) -> String? {
