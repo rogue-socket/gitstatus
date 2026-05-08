@@ -246,10 +246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // names get compacted to `first/../last` by MenuStyle.repoLine to fit.
         let maxName = min(28, max(12, lastScan.map { $0.name.count }.max() ?? 12))
         for repo in lastScan {
-            let item = NSMenuItem(title: repo.name, action: #selector(openRepo(_:)), keyEquivalent: "")
-            item.attributedTitle = MenuStyle.repoLine(repo, nameWidth: maxName)
-            item.target = self
+            // Item with a submenu — clicking the parent opens the submenu (the
+            // submenu's "Reveal in Finder" item replaces the old click action).
+            // Custom view suppresses the AppKit disclosure arrow + its padding.
+            let item = NSMenuItem(title: repo.name, action: nil, keyEquivalent: "")
+            let attr = MenuStyle.repoLine(repo, nameWidth: maxName)
+            item.attributedTitle = attr
+            item.view = CompactRowView(attr: attr)
             item.representedObject = repo.path
+            item.submenu = BranchSubmenu(repo: repo, owner: self)
             menu.addItem(item)
         }
 
@@ -384,11 +389,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Actions
 
-    @objc private func openRepo(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
     @objc private func revealRoot(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -498,6 +498,180 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.alertStyle = .warning
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+// Per-repo submenu. Builds four blocks: header (name + branch + path), Status
+// (counts + ahead/behind + last commit), Actions (open/copy/etc), Branches
+// (list, each with its own sub-submenu of branch actions).
+//
+// Branches and remote URL load lazily on first hover via two git calls; cached
+// per submenu instance, so refresh (which recreates these) invalidates the
+// cache for free.
+final class BranchSubmenu: NSMenu, NSMenuDelegate {
+    let repo: RepoStatus
+    weak var owner: AppDelegate?
+    private var loaded = false
+    private var loading = false
+    private var branches: [BranchStatus]? = nil
+    private var remoteWebURL: URL? = nil
+
+    init(repo: RepoStatus, owner: AppDelegate) {
+        self.repo = repo
+        self.owner = owner
+        super.init(title: "")
+        delegate = self
+        rebuild()
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if loaded || loading { return }
+        loading = true
+        let path = repo.path
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                (GitScanner.branches(in: path), GitScanner.remoteURL(in: path))
+            }.value
+            guard let self else { return }
+            self.branches = result.0
+            self.remoteWebURL = result.1.flatMap { AppDelegate.webURL(forRemote: $0) }
+            self.loaded = true
+            self.loading = false
+            self.rebuild()
+        }
+    }
+
+    private func rebuild() {
+        removeAllItems()
+        guard let owner = owner else { return }
+
+        // --- Header
+        addInfo(MenuStyle.repoHeader(repo))
+        addInfo(MenuStyle.repoPath(repo.path))
+
+        addItem(.separator())
+
+        // --- Status
+        addInfo(MenuStyle.sectionHeader("Status"))
+        var anyDirty = false
+        if let line = MenuStyle.statusCounts(repo) {
+            addInfo(MenuStyle.indent(line)); anyDirty = true
+        }
+        if let line = MenuStyle.statusTrack(repo) {
+            addInfo(MenuStyle.indent(line)); anyDirty = true
+        }
+        if !anyDirty {
+            addInfo(MenuStyle.indent(MenuStyle.statusClean()))
+        }
+        if let line = MenuStyle.statusLast(repo) {
+            addInfo(MenuStyle.indent(line))
+        }
+
+        addItem(.separator())
+
+        // --- Actions
+        addAction("Open in Finder",
+                  #selector(AppDelegate.actOpenInFinder(_:)),
+                  target: owner, repObj: repo.path)
+        addAction("Open in Terminal",
+                  #selector(AppDelegate.actOpenInTerminal(_:)),
+                  target: owner, repObj: repo.path)
+        for editor in owner.installedEditors {
+            addAction("Open in \(editor.name)",
+                      #selector(AppDelegate.actOpenInEditor(_:)),
+                      target: owner,
+                      repObj: EditorPayload(repo: repo.path, app: editor.url))
+        }
+        addAction("Copy path",
+                  #selector(AppDelegate.actCopyString(_:)),
+                  target: owner, repObj: repo.path.path)
+        addAction("Copy branch name (\(repo.branch))",
+                  #selector(AppDelegate.actCopyString(_:)),
+                  target: owner, repObj: repo.branch)
+        if let webURL = remoteWebURL {
+            addAction("Open on \(webURL.host ?? "remote")",
+                      #selector(AppDelegate.actOpenURL(_:)),
+                      target: owner, repObj: webURL)
+        }
+
+        addItem(.separator())
+
+        // --- Branches
+        addInfo(MenuStyle.sectionHeader("Branches"))
+
+        guard let branches = branches else {
+            addInfo(MenuStyle.indent(MenuStyle.plainDim("loading…")))
+            return
+        }
+        if branches.isEmpty {
+            addInfo(MenuStyle.indent(MenuStyle.plainDim("(no local branches)")))
+            return
+        }
+
+        for b in branches {
+            let attr = MenuStyle.branchLine(b)
+            let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            item.attributedTitle = attr
+            // Custom view escapes the menu cell's disabled-appearance overlay
+            // and matches the parent menu's repo-row styling.
+            item.view = CompactRowView(attr: attr)
+            item.submenu = makeBranchSubmenu(b, owner: owner)
+            addItem(item)
+        }
+    }
+
+    private func makeBranchSubmenu(_ b: BranchStatus, owner: AppDelegate) -> NSMenu {
+        let m = NSMenu()
+        let copy = NSMenuItem(title: "Copy name",
+                              action: #selector(AppDelegate.actCopyString(_:)),
+                              keyEquivalent: "")
+        copy.target = owner
+        copy.representedObject = b.name
+        m.addItem(copy)
+
+        if let webURL = remoteWebURL {
+            let branchURL = AppDelegate.branchWebURL(base: webURL, branch: b.name)
+            let open = NSMenuItem(title: "Open on \(webURL.host ?? "remote")",
+                                  action: #selector(AppDelegate.actOpenURL(_:)),
+                                  keyEquivalent: "")
+            open.target = owner
+            open.representedObject = branchURL
+            m.addItem(open)
+        }
+
+        if !b.isCurrent {
+            let co = NSMenuItem(title: "Checkout",
+                                action: #selector(AppDelegate.actCheckout(_:)),
+                                keyEquivalent: "")
+            co.target = owner
+            co.representedObject = CheckoutPayload(repo: repo, branch: b.name)
+            if repo.isDirty {
+                co.toolTip = "Working tree has uncommitted changes — checkout will be refused."
+            }
+            m.addItem(co)
+        }
+        return m
+    }
+
+    // Display-only row. Uses a custom view rather than attributedTitle +
+    // isEnabled=false because AppKit applies a "disabled appearance" overlay
+    // to disabled menu cells that washes out explicit colours; custom views
+    // render at full opacity regardless.
+    private func addInfo(_ attr: NSAttributedString) {
+        let it = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        it.view = CompactRowView(attr: attr)
+        it.isEnabled = false
+        addItem(it)
+    }
+
+    private func addAction(_ title: String, _ action: Selector,
+                           target: AnyObject, repObj: Any) {
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        it.target = target
+        it.representedObject = repObj
+        addItem(it)
     }
 }
 
