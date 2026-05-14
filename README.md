@@ -4,7 +4,7 @@ A tiny native macOS menu bar app that scans folders for git repositories and
 shows each repo's branch and working-tree state at a glance.
 
 - Native AppKit (`NSStatusItem`) — no Dock icon, no background polling
-- Idle CPU 0%, RSS in single-digit MB
+- 0% idle CPU; ~50–80 MB resident (AppKit framework baseline — see notes)
 - Manual refresh only (⌘R local, ⇧⌘R with `git fetch`)
 
 ![GitStatusBar dropdown showing 28 repos](docs/screenshot.png)
@@ -119,7 +119,7 @@ Issues and PRs welcome. There are no tests; verification is manual:
 
 ```sh
 ./build-app.sh && open GitStatusBar.app
-ps -o rss,pid,comm -p "$(pgrep GitStatusBar)"   # RSS should be single-digit MB
+ps -o rss,pid,comm -p "$(pgrep GitStatusBar)"   # ~50–80 MB resident is expected
 ```
 
 ## License

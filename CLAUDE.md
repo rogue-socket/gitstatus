@@ -29,7 +29,9 @@ script when changing anything that affects packaging.
 There are no tests, no linter, and no CI. Verification is manual: launch the
 `.app`, click the menu bar icon, cross-check repo counts/verdicts against
 `bash ~/Documents/git-overview.sh` (with no `--fetch`), and check footprint with
-`ps -o rss,pid,comm -p $(pgrep GitStatusBar)` — RSS should sit in single-digit MB.
+`ps -o rss,pid,comm -p $(pgrep GitStatusBar)` — expect ~50–80 MB resident
+(AppKit framework baseline; `vmmap -summary` confirms most of it is `__TEXT` +
+`__OBJC_RO` from the loaded frameworks, not user-code growth).
 
 Minimum target: macOS 13. Swift 5.9+.
 
