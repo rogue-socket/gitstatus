@@ -30,36 +30,7 @@ enum GitScanner {
                 if let pair = iterator.next() {
                     let repo = pair.repo
                     let root = pair.root
-                    group.addTask { inspect(repo: repo, root: root, fetch: fetch, prefixRootName: multipleRoots) }
-                    inflight += 1
-                }
-            }
-            for _ in 0..<limit { addNext() }
-
-            while inflight > 0 {
-                if let r = await group.next() {
-                    inflight -= 1
-                    if let r = r { results.append(r) }
-                    addNext()
-                }
-            }
-            return results.sorted { $0.name.lowercased() < $1.name.lowercased() }
-        }
-    }
-
-    static func scan(root: URL, fetch: Bool, maxDepth: Int = 3) async -> [RepoStatus] {
-        let repoPaths = findRepos(root: root, maxDepth: maxDepth)
-
-        return await withTaskGroup(of: RepoStatus?.self) { group in
-            // Bound concurrency
-            let limit = 8
-            var iterator = repoPaths.makeIterator()
-            var inflight = 0
-            var results: [RepoStatus] = []
-
-            func addNext() {
-                if let path = iterator.next() {
-                    group.addTask { inspect(repo: path, root: root, fetch: fetch) }
+                    group.addTask { await inspect(repo: repo, root: root, fetch: fetch, prefixRootName: multipleRoots) }
                     inflight += 1
                 }
             }
@@ -113,7 +84,7 @@ enum GitScanner {
 
     // MARK: - Per-repo inspection
 
-    private static func inspect(repo: URL, root: URL, fetch: Bool, prefixRootName: Bool = false) -> RepoStatus {
+    private static func inspect(repo: URL, root: URL, fetch: Bool, prefixRootName: Bool = false) async -> RepoStatus {
         let name: String = {
             let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
             let p = repo.path
@@ -126,30 +97,31 @@ enum GitScanner {
             return prefixRootName ? "\(root.lastPathComponent)/\(rel)" : rel
         }()
 
-        let branch = git(["symbolic-ref", "--short", "HEAD"], in: repo)
-            ?? git(["rev-parse", "--short", "HEAD"], in: repo)
-            ?? "unknown"
+        var branch = await git(["symbolic-ref", "--short", "HEAD"], in: repo) ?? ""
+        if branch.isEmpty {
+            branch = await git(["rev-parse", "--short", "HEAD"], in: repo) ?? "unknown"
+        }
 
-        let staged    = lineCount(git(["diff", "--cached", "--numstat"], in: repo))
-        let modified  = lineCount(git(["diff", "--numstat"], in: repo))
-        let untracked = lineCount(git(["ls-files", "--others", "--exclude-standard"], in: repo))
-        let stashes   = lineCount(git(["stash", "list"], in: repo))
+        let staged    = lineCount(await git(["diff", "--cached", "--numstat"], in: repo))
+        let modified  = lineCount(await git(["diff", "--numstat"], in: repo))
+        let untracked = lineCount(await git(["ls-files", "--others", "--exclude-standard"], in: repo))
+        let stashes   = lineCount(await git(["stash", "list"], in: repo))
 
-        let upstream = git(["rev-parse", "--abbrev-ref", "@{upstream}"], in: repo)
+        let upstream = await git(["rev-parse", "--abbrev-ref", "@{upstream}"], in: repo)
         let hasUpstream = (upstream != nil && !(upstream ?? "").isEmpty)
 
         var ahead = 0
         var behind = 0
         if let up = upstream, !up.isEmpty {
             if fetch {
-                _ = git(["fetch", "--quiet"], in: repo, timeout: 15)
+                _ = await git(["fetch", "--quiet"], in: repo, timeout: 15)
             }
-            ahead  = Int(git(["rev-list", "--count", "\(up)..HEAD"], in: repo) ?? "0") ?? 0
-            behind = Int(git(["rev-list", "--count", "HEAD..\(up)"], in: repo) ?? "0") ?? 0
+            ahead  = Int((await git(["rev-list", "--count", "\(up)..HEAD"], in: repo)) ?? "0") ?? 0
+            behind = Int((await git(["rev-list", "--count", "HEAD..\(up)"], in: repo)) ?? "0") ?? 0
         }
 
-        let lastDate = git(["log", "-1", "--format=%ar"], in: repo) ?? "no commits"
-        var lastMsg  = git(["log", "-1", "--format=%s"], in: repo) ?? ""
+        let lastDate = (await git(["log", "-1", "--format=%ar"], in: repo)) ?? "no commits"
+        var lastMsg  = (await git(["log", "-1", "--format=%s"], in: repo)) ?? ""
         if lastMsg.count > 60 { lastMsg = String(lastMsg.prefix(57)) + "..." }
 
         return RepoStatus(
@@ -162,7 +134,7 @@ enum GitScanner {
 
     // MARK: - Per-branch inspection (lazy, called on submenu hover)
 
-    static func branches(in repo: URL) -> [BranchStatus] {
+    static func branches(in repo: URL) async -> [BranchStatus] {
         // Single git call: list every local branch with HEAD marker, upstream,
         // ahead/behind track string, relative date and subject. Avoids N
         // process spawns per repo.
@@ -171,7 +143,7 @@ enum GitScanner {
             "%(HEAD)", "%(refname:short)", "%(upstream:short)",
             "%(upstream:track)", "%(committerdate:relative)", "%(subject)",
         ].joined(separator: sep)
-        guard let raw = git(
+        guard let raw = await git(
             ["for-each-ref", "--format=" + format, "refs/heads"],
             in: repo
         ) else { return [] }
@@ -214,8 +186,8 @@ enum GitScanner {
 
     // MARK: - Remote URL & checkout (called from submenu actions)
 
-    static func remoteURL(in repo: URL) -> String? {
-        let s = git(["remote", "get-url", "origin"], in: repo)
+    static func remoteURL(in repo: URL) async -> String? {
+        let s = await git(["remote", "get-url", "origin"], in: repo)
         return (s?.isEmpty ?? true) ? nil : s
     }
 
@@ -253,7 +225,7 @@ enum GitScanner {
 
     // MARK: - Process helpers
 
-    private static func git(_ args: [String], in dir: URL, timeout: TimeInterval = 5) -> String? {
+    private static func git(_ args: [String], in dir: URL, timeout: TimeInterval = 5) async -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["git"] + args
@@ -269,27 +241,86 @@ enum GitScanner {
         env["LC_ALL"] = "C"
         p.environment = env
 
-        do { try p.run() } catch { return nil }
-
-        // Simple timeout
-        let deadline = Date().addingTimeInterval(timeout)
-        while p.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.02)
+        // Drain pipes incrementally — a >64KB write would otherwise block git on
+        // the kernel pipe buffer and stall the whole call until our timeout.
+        let stdoutBuf = DataBox()
+        out.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+            } else {
+                stdoutBuf.append(chunk)
+            }
         }
-        if p.isRunning {
-            p.terminate()
-            return nil
+        err.fileHandleForReading.readabilityHandler = { handle in
+            // stderr is discarded but must still be drained.
+            if handle.availableData.isEmpty { handle.readabilityHandler = nil }
         }
 
-        guard p.terminationStatus == 0 else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        let s = String(data: data, encoding: .utf8) ?? ""
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            let resumer = OneShotResumer(continuation: cont)
+
+            p.terminationHandler = { proc in
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+                let tail = out.fileHandleForReading.availableData
+                if !tail.isEmpty { stdoutBuf.append(tail) }
+                guard proc.terminationStatus == 0 else {
+                    resumer.resume(nil); return
+                }
+                let s = String(data: stdoutBuf.data, encoding: .utf8) ?? ""
+                resumer.resume(s.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+
+            do { try p.run() } catch {
+                resumer.resume(nil); return
+            }
+
+            // Watchdog: terminate the child on timeout. terminationHandler will
+            // still fire afterwards, but OneShotResumer ignores the second
+            // resume so we surface a clear nil immediately.
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
+                guard let p = p, p.isRunning else { return }
+                p.terminate()
+                resumer.resume(nil)
+            }
+        }
     }
 
     private static func lineCount(_ s: String?) -> Int {
         guard let s = s, !s.isEmpty else { return 0 }
         return s.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.isEmpty }.count
+    }
+}
+
+// Thread-safe Data accumulator for pipe readability callbacks (which fire on a
+// private NSFileHandle queue).
+private final class DataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes = Data()
+    func append(_ chunk: Data) {
+        lock.lock(); bytes.append(chunk); lock.unlock()
+    }
+    var data: Data {
+        lock.lock(); defer { lock.unlock() }
+        return bytes
+    }
+}
+
+// Wraps a CheckedContinuation so the first resume wins. Needed because both
+// the process terminationHandler and the timeout watchdog can race to resume.
+private final class OneShotResumer<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Never>?
+    init(continuation: CheckedContinuation<T, Never>) {
+        self.continuation = continuation
+    }
+    func resume(_ value: T) {
+        lock.lock()
+        let c = continuation
+        continuation = nil
+        lock.unlock()
+        c?.resume(returning: value)
     }
 }

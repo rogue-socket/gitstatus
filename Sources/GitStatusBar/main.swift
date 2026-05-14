@@ -560,12 +560,13 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
         loading = true
         let path = repo.path
         Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
-                (GitScanner.branches(in: path), GitScanner.remoteURL(in: path))
-            }.value
+            async let branchList = GitScanner.branches(in: path)
+            async let remote = GitScanner.remoteURL(in: path)
+            let loadedBranches = await branchList
+            let loadedRemote = await remote
             guard let self else { return }
-            self.branches = result.0
-            self.remoteWebURL = result.1.flatMap { AppDelegate.webURL(forRemote: $0) }
+            self.branches = loadedBranches
+            self.remoteWebURL = loadedRemote.flatMap { AppDelegate.webURL(forRemote: $0) }
             self.loaded = true
             self.loading = false
             self.rebuild()
