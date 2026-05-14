@@ -12,7 +12,6 @@ Status tags:
 
 ## Open
 
-- Investigate why RSS sits at ~51 MB at idle. **Why:** CLAUDE.md spec is single-digit MB; could be Launch Services / app-icon caches pulled in by `urlForApplication(withBundleIdentifier:)`, or a baseline drift since macOS Sequoia. Compare against an older build to confirm pre-existing.
 - Verify whether tooltips actually render inside `NSMenu` custom views before reattempting any icon-based menu UI. **Why:** rationale for ditching the icon strip mid-session, never empirically confirmed — would unblock a future icon-strip experiment.
 - Consider a hover indicator on `TextActionRow` segments (faint underline + hand cursor on entry). **Why:** segments aren't visually obvious as buttons; user said the lack is acceptable but flagged it as worth doing if cheap.
 - Move `BranchSubmenu`, `TextActionRow`, and `CompactRowView` out of `main.swift` into their own file(s). **Why:** project's "four files" convention in CLAUDE.md; `main.swift` is now 821 lines and hosts three classes that could each live alone.
