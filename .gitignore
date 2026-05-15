@@ -6,6 +6,9 @@ Package.resolved
 # Built app bundle (rebuild with build-app.sh)
 *.app
 
+# Release archives
+*.zip
+
 # Xcode (in case anyone opens via xed)
 *.xcodeproj/
 *.xcworkspace/
