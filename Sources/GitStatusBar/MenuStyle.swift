@@ -121,22 +121,16 @@ enum MenuStyle {
 
     // MARK: - Repo submenu styling
 
-    // Top-of-submenu: status dot + bold repo name + branch icon + branch name.
+    // Top-of-submenu: status dot + bold repo name + dim full path.
     static func repoHeader(_ r: RepoStatus) -> NSAttributedString {
         let s = NSMutableAttributedString()
         let (glyph, dotColor) = dot(for: r)
         s.append(run("\(glyph)  ", font: monoBd, color: dotColor))
         s.append(run(r.name, font: NSFont.systemFont(ofSize: 13, weight: .semibold), color: cFg))
         s.append(run("   ", font: mono, color: cDim))
-        s.append(branchIcon())
-        s.append(run(" \(r.branch)", font: mono, color: cBranch))
+        let path = r.path.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        s.append(run(path, font: small, color: cDim))
         return s
-    }
-
-    // Dim file path under the header.
-    static func repoPath(_ url: URL) -> NSAttributedString {
-        let path = url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-        return run("   " + path, font: small, color: cDim)
     }
 
     // Section title ("Status", "Branches"): small caps-style dim line.

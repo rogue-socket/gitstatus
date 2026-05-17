@@ -562,11 +562,19 @@ final class CompactRowView: NSView {
         )
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard enclosingMenuItem?.isHighlighted == true else { return }
+        let rect = bounds.insetBy(dx: 5, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        path.fill()
+    }
 }
 
-// Per-repo submenu. Builds four blocks: header (name + branch + path), Status
-// (counts + ahead/behind + last commit), Actions (open/copy/etc), Branches
-// (list, each with its own sub-submenu of branch actions).
+// Per-repo submenu. Builds four blocks: header (name + path), Status
+// (counts + ahead/behind + last commit), Actions (open/copy on one row),
+// Branches (list, each with its own sub-submenu of branch actions).
 //
 // Branches and remote URL load lazily on first hover via two git calls; cached
 // per submenu instance, so refresh (which recreates these) invalidates the
@@ -613,22 +621,22 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
 
         // --- Header
         addInfo(MenuStyle.repoHeader(repo))
-        addInfo(MenuStyle.repoPath(repo.path))
 
         addItem(.separator())
 
         // --- Status
         addInfo(MenuStyle.sectionHeader("Status"))
-        var anyDirty = false
-        if let line = MenuStyle.statusCounts(repo) {
+        let counts = MenuStyle.statusCounts(repo)
+        let track  = MenuStyle.statusTrack(repo)
+        if counts != nil || track != nil {
+            let line = NSMutableAttributedString()
+            if let c = counts { line.append(c) }
+            if let t = track {
+                if line.length > 0 { line.append(MenuStyle.plainDim("   ")) }
+                line.append(t)
+            }
             addInfo(MenuStyle.indent(line))
-            anyDirty = true
-        }
-        if let line = MenuStyle.statusTrack(repo) {
-            addInfo(MenuStyle.indent(line))
-            anyDirty = true
-        }
-        if !anyDirty {
+        } else {
             addInfo(MenuStyle.indent(MenuStyle.statusClean()))
         }
         if let line = MenuStyle.statusLast(repo) {
@@ -681,13 +689,12 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
                 representedObject: repo.branch),
         ]
 
-        let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        openItem.view = TextActionRow(prefix: "Open:", actions: openActions)
-        addItem(openItem)
-
-        let copyItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        copyItem.view = TextActionRow(prefix: "Copy:", actions: copyActions)
-        addItem(copyItem)
+        let actionsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        actionsItem.view = TextActionRow(groups: [
+            TextActionGroup(prefix: "Open:", actions: openActions),
+            TextActionGroup(prefix: "Copy:", actions: copyActions),
+        ])
+        addItem(actionsItem)
 
         addItem(.separator())
 
@@ -774,16 +781,22 @@ struct TextAction {
     let representedObject: Any?
 }
 
-// A row like "Open: Finder · Terminal · GitHub" rendered as a menu item view.
-// The dim verb prefix sits at the left; each action label is a borderless
-// NSButton that closes the menu hierarchy and invokes the handler with a
-// synthetic NSMenuItem carrying representedObject — so AppDelegate's existing
-// `act*` handlers don't need to know about this widget.
+// One labelled run of actions inside a TextActionRow, e.g. ("Open:", [Finder, Terminal]).
+struct TextActionGroup {
+    let prefix: String
+    let actions: [TextAction]
+}
+
+// A row like "Open: Finder · Terminal   Copy: path · branch" rendered as a
+// menu item view. Each group's dim verb prefix sits before its action labels;
+// borderless NSButton labels close the menu hierarchy and invoke the handler
+// with a synthetic NSMenuItem carrying representedObject — so AppDelegate's
+// existing `act*` handlers don't need to know about this widget.
 final class TextActionRow: NSView {
     private let actions: [TextAction]
 
-    init(prefix: String, actions: [TextAction]) {
-        self.actions = actions
+    init(groups: [TextActionGroup]) {
+        self.actions = groups.flatMap { $0.actions }
         super.init(frame: .zero)
 
         let font = NSFont.menuFont(ofSize: 13)
@@ -801,25 +814,32 @@ final class TextActionRow: NSView {
         stack.alignment = .firstBaseline
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(label(prefix, font: font, color: prefixColor))
-
-        for (i, a) in actions.enumerated() {
-            if i > 0 {
-                stack.addArrangedSubview(label("·", font: font, color: sepColor))
+        var tag = 0
+        for (gi, group) in groups.enumerated() {
+            if gi > 0 {
+                // Wider visual gap between groups than between action items.
+                stack.addArrangedSubview(label("   ", font: font, color: sepColor))
             }
-            let btn = NSButton()
-            btn.isBordered = false
-            btn.bezelStyle = .inline
-            btn.attributedTitle = NSAttributedString(
-                string: a.label,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: textColor,
-                ])
-            btn.target = self
-            btn.action = #selector(clicked(_:))
-            btn.tag = i
-            stack.addArrangedSubview(btn)
+            stack.addArrangedSubview(label(group.prefix, font: font, color: prefixColor))
+            for (i, a) in group.actions.enumerated() {
+                if i > 0 {
+                    stack.addArrangedSubview(label("·", font: font, color: sepColor))
+                }
+                let btn = NSButton()
+                btn.isBordered = false
+                btn.bezelStyle = .inline
+                btn.attributedTitle = NSAttributedString(
+                    string: a.label,
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: textColor,
+                    ])
+                btn.target = self
+                btn.action = #selector(clicked(_:))
+                btn.tag = tag
+                tag += 1
+                stack.addArrangedSubview(btn)
+            }
         }
 
         addSubview(stack)
