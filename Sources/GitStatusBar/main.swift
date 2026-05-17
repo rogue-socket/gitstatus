@@ -8,8 +8,14 @@ struct EditorApp {
 }
 
 // representedObject payloads for action handlers.
-struct EditorPayload { let repo: URL; let app: URL }
-struct CheckoutPayload { let repo: RepoStatus; let branch: String }
+struct EditorPayload {
+    let repo: URL
+    let app: URL
+}
+struct CheckoutPayload {
+    let repo: RepoStatus
+    let branch: String
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
@@ -29,12 +35,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func detectEditors() -> [EditorApp] {
         // Each candidate: (display name, bundle IDs to try, fallback paths).
         let candidates: [(String, [String], [String])] = [
-            ("Sublime Text",
-             ["com.sublimetext.4", "com.sublimetext.3"],
-             ["/Applications/Sublime Text.app"]),
-            ("Zed",
-             ["dev.zed.Zed"],
-             ["/Applications/Zed.app"]),
+            (
+                "Sublime Text",
+                ["com.sublimetext.4", "com.sublimetext.3"],
+                ["/Applications/Sublime Text.app"]
+            ),
+            (
+                "Zed",
+                ["dev.zed.Zed"],
+                ["/Applications/Zed.app"]
+            ),
         ]
         let ws = NSWorkspace.shared
         let fm = FileManager.default
@@ -42,11 +52,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (name, bids, paths) in candidates {
             var url: URL?
             for bid in bids {
-                if let u = ws.urlForApplication(withBundleIdentifier: bid) { url = u; break }
+                if let u = ws.urlForApplication(withBundleIdentifier: bid) {
+                    url = u
+                    break
+                }
             }
             if url == nil {
                 for p in paths where fm.fileExists(atPath: p) {
-                    url = URL(fileURLWithPath: p); break
+                    url = URL(fileURLWithPath: p)
+                    break
                 }
             }
             if let u = url { found.append(EditorApp(name: name, url: u)) }
@@ -67,9 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // SSH style: user@host:path
         if let regex = try? NSRegularExpression(pattern: #"^[^@\s]+@([^:\s]+):(.+)$"#),
-           let m = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
-           let hr = Range(m.range(at: 1), in: s),
-           let pr = Range(m.range(at: 2), in: s) {
+            let m = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
+            let hr = Range(m.range(at: 1), in: s),
+            let pr = Range(m.range(at: 2), in: s)
+        {
             let host = String(s[hr])
             let path = String(s[pr])
             guard allowedHosts.contains(host) else { return nil }
@@ -165,9 +180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStatusBarIcon() {
         guard let btn = statusItem.button else { return }
 
-        let dirty  = lastScan.filter { $0.isDirty }.count
+        let dirty = lastScan.filter { $0.isDirty }.count
         let behind = lastScan.filter { $0.behind > 0 }.count
-        let ahead  = lastScan.filter { $0.ahead > 0 }.count
+        let ahead = lastScan.filter { $0.ahead > 0 }.count
 
         let symbolName: String
         let tint: NSColor?
@@ -220,9 +235,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let roots = scanRoots
         let rootSummary: String
         if roots.count == 1 {
-            rootSummary = "📂  \(displayPath(roots[0]))"
+            rootSummary = "\(displayPath(roots[0]))"
         } else {
-            rootSummary = "📂  \(roots.count) folders"
+            rootSummary = "\(roots.count) folders"
         }
         menu.addItem(makeCompactItem(MenuStyle.headerLine(rootSummary), enabled: false))
 
@@ -234,10 +249,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let dirty = lastScan.filter { $0.isDirty }.count
             let ahead = lastScan.filter { $0.ahead > 0 }.count
             let behind = lastScan.filter { $0.behind > 0 }.count
-            menu.addItem(makeCompactItem(
-                MenuStyle.summaryLine(total: total, clean: clean, dirty: dirty, ahead: ahead, behind: behind),
-                enabled: false
-            ))
+            menu.addItem(
+                makeCompactItem(
+                    MenuStyle.summaryLine(
+                        total: total, clean: clean, dirty: dirty, ahead: ahead, behind: behind),
+                    enabled: false
+                ))
         }
 
         menu.addItem(.separator())
@@ -274,7 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(refreshLocal)
 
         let refreshRemote = makeCompactItem(
-            controlAttr(scanning ? "⇣  Fetching…" : "⇣  Refresh + fetch", shortcut: scanning ? "" : "⇧⌘R"),
+            controlAttr(
+                scanning ? "⇣  Fetching…" : "⇣  Refresh + fetch", shortcut: scanning ? "" : "⇧⌘R"),
             action: #selector(refreshRemoteAction(_:)),
             keyEquiv: "R",
             keyMask: [.command, .shift]
@@ -282,12 +300,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshRemote.isEnabled = !scanning
         menu.addItem(refreshRemote)
 
-        menu.addItem(makeCompactItem(
-            controlAttr("⏻  Quit", shortcut: "⌘Q"),
-            action: #selector(NSApplication.terminate(_:)),
-            target: NSApp,
-            keyEquiv: "q"
-        ))
+        menu.addItem(
+            makeCompactItem(
+                controlAttr("⏻  Quit", shortcut: "⌘Q"),
+                action: #selector(NSApplication.terminate(_:)),
+                target: NSApp,
+                keyEquiv: "q"
+            ))
     }
 
     // MARK: - Compact item helpers
@@ -311,15 +330,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Title + dim shortcut hint, used for non-repo control rows.
     private func controlAttr(_ title: String, shortcut: String) -> NSAttributedString {
         let s = NSMutableAttributedString()
-        s.append(NSAttributedString(string: title, attributes: [
-            .font: NSFont.menuFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
-        ]))
+        s.append(
+            NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: NSFont.menuFont(ofSize: 13),
+                    .foregroundColor: NSColor.labelColor,
+                ]))
         if !shortcut.isEmpty {
-            s.append(NSAttributedString(string: "  " + shortcut, attributes: [
-                .font: NSFont.menuFont(ofSize: 11),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
+            s.append(
+                NSAttributedString(
+                    string: "  " + shortcut,
+                    attributes: [
+                        .font: NSFont.menuFont(ofSize: 11),
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                    ]))
         }
         return s
     }
@@ -333,15 +358,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let roots = scanRoots
         for (idx, root) in roots.enumerated() {
-            let folderItem = NSMenuItem(title: "  " + displayPath(root), action: nil, keyEquivalent: "")
+            let folderItem = NSMenuItem(
+                title: "  " + displayPath(root), action: nil, keyEquivalent: "")
             let sub = NSMenu()
 
-            let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(revealRoot(_:)), keyEquivalent: "")
+            let revealItem = NSMenuItem(
+                title: "Reveal in Finder", action: #selector(revealRoot(_:)), keyEquivalent: "")
             revealItem.target = self
             revealItem.representedObject = root
             sub.addItem(revealItem)
 
-            let removeItem = NSMenuItem(title: "Remove", action: #selector(removeRoot(_:)), keyEquivalent: "")
+            let removeItem = NSMenuItem(
+                title: "Remove", action: #selector(removeRoot(_:)), keyEquivalent: "")
             removeItem.target = self
             removeItem.representedObject = idx
             removeItem.isEnabled = roots.count > 1  // keep at least one
@@ -351,7 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(folderItem)
         }
 
-        let addItem = NSMenuItem(title: "Add folder…", action: #selector(addFolder(_:)), keyEquivalent: "")
+        let addItem = NSMenuItem(
+            title: "Add folder…", action: #selector(addFolder(_:)), keyEquivalent: "")
         addItem.target = self
         m.addItem(addItem)
 
@@ -442,22 +471,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func actOpenInTerminal(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
+        let term =
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
             ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
         guard let term = term else {
             warn("No terminal app found", "Install Terminal.app or iTerm2.")
             return
         }
-        NSWorkspace.shared.open([url],
-                                withApplicationAt: term,
-                                configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: term,
+            configuration: NSWorkspace.OpenConfiguration())
     }
 
     @objc func actOpenInEditor(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? EditorPayload else { return }
-        NSWorkspace.shared.open([p.repo],
-                                withApplicationAt: p.app,
-                                configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.open(
+            [p.repo],
+            withApplicationAt: p.app,
+            configuration: NSWorkspace.OpenConfiguration())
     }
 
     @objc func actCopyString(_ sender: NSMenuItem) {
@@ -475,8 +507,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func actCheckout(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? CheckoutPayload else { return }
         if p.repo.isDirty {
-            warn("Working tree has uncommitted changes",
-                 "Checking out \(p.branch) could clobber local changes. Commit or stash first.")
+            warn(
+                "Working tree has uncommitted changes",
+                "Checking out \(p.branch) could clobber local changes. Commit or stash first.")
             return
         }
         Task { [weak self] in
@@ -484,8 +517,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 GitScanner.checkout(branch: p.branch, in: p.repo.path)
             }.value
             if !result.ok {
-                self?.warn("Checkout failed",
-                           result.message.isEmpty ? "git exited non-zero" : result.message)
+                self?.warn(
+                    "Checkout failed",
+                    result.message.isEmpty ? "git exited non-zero" : result.message)
             }
             await self?.refresh(fetch: false)
         }
@@ -587,10 +621,12 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
         addInfo(MenuStyle.sectionHeader("Status"))
         var anyDirty = false
         if let line = MenuStyle.statusCounts(repo) {
-            addInfo(MenuStyle.indent(line)); anyDirty = true
+            addInfo(MenuStyle.indent(line))
+            anyDirty = true
         }
         if let line = MenuStyle.statusTrack(repo) {
-            addInfo(MenuStyle.indent(line)); anyDirty = true
+            addInfo(MenuStyle.indent(line))
+            anyDirty = true
         }
         if !anyDirty {
             addInfo(MenuStyle.indent(MenuStyle.statusClean()))
@@ -603,40 +639,46 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
 
         // --- Actions (two compact text rows: "Open: ..." and "Copy: ...")
         var openActions: [TextAction] = [
-            TextAction(label: "Finder",
-                       target: owner,
-                       action: #selector(AppDelegate.actOpenInFinder(_:)),
-                       representedObject: repo.path),
-            TextAction(label: "Terminal",
-                       target: owner,
-                       action: #selector(AppDelegate.actOpenInTerminal(_:)),
-                       representedObject: repo.path),
+            TextAction(
+                label: "Finder",
+                target: owner,
+                action: #selector(AppDelegate.actOpenInFinder(_:)),
+                representedObject: repo.path),
+            TextAction(
+                label: "Terminal",
+                target: owner,
+                action: #selector(AppDelegate.actOpenInTerminal(_:)),
+                representedObject: repo.path),
         ]
         for editor in owner.installedEditors {
-            openActions.append(TextAction(
-                label: editor.name,
-                target: owner,
-                action: #selector(AppDelegate.actOpenInEditor(_:)),
-                representedObject: EditorPayload(repo: repo.path, app: editor.url)
-            ))
+            openActions.append(
+                TextAction(
+                    label: editor.name,
+                    target: owner,
+                    action: #selector(AppDelegate.actOpenInEditor(_:)),
+                    representedObject: EditorPayload(repo: repo.path, app: editor.url)
+                ))
         }
         if let webURL = remoteWebURL {
-            openActions.append(TextAction(
-                label: webURL.host ?? "remote",
-                target: owner,
-                action: #selector(AppDelegate.actOpenURL(_:)),
-                representedObject: webURL
-            ))
+            openActions.append(
+                TextAction(
+                    label: webURL.host ?? "remote",
+                    target: owner,
+                    action: #selector(AppDelegate.actOpenURL(_:)),
+                    representedObject: webURL
+                ))
         }
         let copyActions: [TextAction] = [
-            TextAction(label: "path",
-                       target: owner,
-                       action: #selector(AppDelegate.actCopyString(_:)),
-                       representedObject: repo.path.path),
-            TextAction(label: "branch",
-                       target: owner,
-                       action: #selector(AppDelegate.actCopyString(_:)),
-                       representedObject: repo.branch),
+            TextAction(
+                label: "path",
+                target: owner,
+                action: #selector(AppDelegate.actCopyString(_:)),
+                representedObject: repo.path.path),
+            TextAction(
+                label: "branch",
+                target: owner,
+                action: #selector(AppDelegate.actCopyString(_:)),
+                representedObject: repo.branch),
         ]
 
         let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -675,27 +717,30 @@ final class BranchSubmenu: NSMenu, NSMenuDelegate {
 
     private func makeBranchSubmenu(_ b: BranchStatus, owner: AppDelegate) -> NSMenu {
         let m = NSMenu()
-        let copy = NSMenuItem(title: "Copy name",
-                              action: #selector(AppDelegate.actCopyString(_:)),
-                              keyEquivalent: "")
+        let copy = NSMenuItem(
+            title: "Copy name",
+            action: #selector(AppDelegate.actCopyString(_:)),
+            keyEquivalent: "")
         copy.target = owner
         copy.representedObject = b.name
         m.addItem(copy)
 
         if let webURL = remoteWebURL {
             let branchURL = AppDelegate.branchWebURL(base: webURL, branch: b.name)
-            let open = NSMenuItem(title: "Open on \(webURL.host ?? "remote")",
-                                  action: #selector(AppDelegate.actOpenURL(_:)),
-                                  keyEquivalent: "")
+            let open = NSMenuItem(
+                title: "Open on \(webURL.host ?? "remote")",
+                action: #selector(AppDelegate.actOpenURL(_:)),
+                keyEquivalent: "")
             open.target = owner
             open.representedObject = branchURL
             m.addItem(open)
         }
 
         if !b.isCurrent {
-            let co = NSMenuItem(title: "Checkout",
-                                action: #selector(AppDelegate.actCheckout(_:)),
-                                keyEquivalent: "")
+            let co = NSMenuItem(
+                title: "Checkout",
+                action: #selector(AppDelegate.actCheckout(_:)),
+                keyEquivalent: "")
             co.target = owner
             co.representedObject = CheckoutPayload(repo: repo, branch: b.name)
             if repo.isDirty {
@@ -765,10 +810,12 @@ final class TextActionRow: NSView {
             let btn = NSButton()
             btn.isBordered = false
             btn.bezelStyle = .inline
-            btn.attributedTitle = NSAttributedString(string: a.label, attributes: [
-                .font: font,
-                .foregroundColor: textColor,
-            ])
+            btn.attributedTitle = NSAttributedString(
+                string: a.label,
+                attributes: [
+                    .font: font,
+                    .foregroundColor: textColor,
+                ])
             btn.target = self
             btn.action = #selector(clicked(_:))
             btn.tag = i
@@ -784,8 +831,9 @@ final class TextActionRow: NSView {
         ])
 
         let fitting = stack.fittingSize
-        frame.size = NSSize(width: fitting.width + leading + trailing,
-                            height: fitting.height + topPad + bottomPad)
+        frame.size = NSSize(
+            width: fitting.width + leading + trailing,
+            height: fitting.height + topPad + bottomPad)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
