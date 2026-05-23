@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let img: NSImage?
-        if let tint = tint, #available(macOS 12.0, *) {
+        if let tint = tint {
             let cfg = NSImage.SymbolConfiguration(paletteColors: [tint])
             img = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Git Status")?
                 .withSymbolConfiguration(cfg)
@@ -270,7 +270,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let attr = MenuStyle.repoLine(repo, nameWidth: maxName)
             item.attributedTitle = attr
             item.view = CompactRowView(attr: attr)
-            item.representedObject = repo.path
             item.submenu = BranchSubmenu(repo: repo, owner: self)
             menu.addItem(item)
         }

@@ -9,9 +9,8 @@ BIN_NAME="GitStatusBar"
 APP_DIR="${BIN_NAME}.app"
 
 echo "→ swift build -c ${CONFIG}"
-swift build -c "${CONFIG}"
-
-BIN_PATH="$(swift build -c "${CONFIG}" --show-bin-path)/${BIN_NAME}"
+BIN_DIR="$(swift build -c "${CONFIG}" --show-bin-path)"
+BIN_PATH="${BIN_DIR}/${BIN_NAME}"
 if [[ ! -x "${BIN_PATH}" ]]; then
   echo "build failed: binary not at ${BIN_PATH}" >&2
   exit 1

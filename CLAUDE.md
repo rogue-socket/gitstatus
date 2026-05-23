@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `GitStatusBar` is a tiny native macOS menu bar app (AppKit `NSStatusItem`, no
 Dock icon) that scans configured folders for git repositories and shows each
 repo's branch + working-tree state in its dropdown. It is the GUI equivalent of
-`../git-overview.sh` (sibling of this repo, in `~/Documents/git-overview.sh`) —
+`git-overview.sh` (at `~/Documents/Scripts/git-overview.sh`) —
 the Swift code reproduces that script's command list and verdict logic. Treat
 the script as the behavioural spec.
 
@@ -28,7 +28,7 @@ script when changing anything that affects packaging.
 
 There are no tests, no linter, and no CI. Verification is manual: launch the
 `.app`, click the menu bar icon, cross-check repo counts/verdicts against
-`bash ~/Documents/git-overview.sh` (with no `--fetch`), and check footprint with
+`bash ~/Documents/Scripts/git-overview.sh` (with no `--fetch`), and check footprint with
 `ps -o rss,pid,comm -p $(pgrep GitStatusBar)` — expect ~50–80 MB resident
 (AppKit framework baseline; `vmmap -summary` confirms most of it is `__TEXT` +
 `__OBJC_RO` from the loaded frameworks, not user-code growth).
@@ -41,10 +41,13 @@ Four files in `Sources/GitStatusBar/`, each with a focused responsibility — ke
 this separation when extending:
 
 - **`main.swift`** — `AppDelegate` owns the `NSStatusItem`, the menu, persisted
-  settings, and the refresh lifecycle. The menu is rebuilt from scratch
+  settings, and the refresh lifecycle; also hosts menu UI types (`CompactRowView`,
+  `TextActionRow`, `BranchSubmenu`) and repo actions (open in Finder/Terminal/
+  editors, copy, checkout, remote web URLs). The menu is rebuilt from scratch
   (`rebuildMenu`) on every state change rather than mutated in place; this is
   cheap and avoids stale-item bugs. `menuNeedsUpdate` triggers an auto-refresh
-  if the cached scan is older than 2 s.
+  if the cached scan is older than 2 s. Per-repo submenus load branch list and
+  remote URL lazily on first open (`BranchSubmenu.menuNeedsUpdate`).
 - **`GitScanner.swift`** — pure scan logic. `scan(roots:fetch:)` walks each
   root with `FileManager` (depth-limited to 3, doesn't descend into a found
   repo), then per-repo shells out to `git` via `Process`. Concurrency is

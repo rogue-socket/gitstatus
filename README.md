@@ -62,17 +62,21 @@ into System Settings → General → Login Items.
 
 Click the branch icon in the menu bar:
 
-- **Header**: scan root + summary counts.
-- **Per-repo line**: `name  ⎇ branch  · verdict`. Click → reveal in Finder.
-  Hover → last commit message.
+- **Header**: scan root(s) + summary counts (total, clean, dirty, ahead, behind).
+- **Per-repo line**: `name  ⎇ branch  · verdict` (colour-coded counts). Opens a
+  **submenu** with:
+  - **Status** — staged/modified/untracked, ahead/behind, last commit.
+  - **Open / Copy** — Finder, Terminal, detected editors (Sublime, Zed), remote
+    URL when recognised; copy path or branch name.
+  - **Branches** — local branches (loaded on first open); each branch has copy,
+    open-on-host, and checkout actions.
 - **`Settings ▸`**
-  - `Folders to scan`: each configured folder appears here. Hover to reveal a
-    submenu with `Reveal in Finder` and `Remove`.
+  - `Folders to scan`: each configured folder with `Reveal in Finder` / `Remove`.
   - `Add folder…` opens a system picker (multi-select supported).
   - `Launch at Login` toggles auto-start.
-- **`↻ Refresh (local)`** (⌘R) — rescan working trees only. Fast, no network.
-- **`⇣ Refresh with remote`** (⇧⌘R) — runs `git fetch --quiet` per repo
-  before computing ahead/behind counts. Slower, contacts remotes.
+- **`↻ Refresh`** (⌘R) — rescan working trees only. Fast, no network.
+- **`⇣ Refresh + fetch`** (⇧⌘R) — runs `git fetch --quiet` per repo before
+  computing ahead/behind counts. Slower, contacts remotes.
 - **`Quit`** (⌘Q).
 
 ## Configuration
