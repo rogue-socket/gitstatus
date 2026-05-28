@@ -28,3 +28,7 @@ DerivedData/
 
 # Logs
 *.log
+
+# Codex session docs
+handoffs/
+backlog.md
