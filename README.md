@@ -11,6 +11,8 @@ shows each repo's branch and working-tree state at a glance.
 
 ## Download
 
+Website: https://gitstatus.tech
+
 Install with Homebrew:
 
 ```sh
